@@ -1,0 +1,175 @@
+[build-system]
+requires = ["setuptools>=70", "wheel", "click", "requests"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karakana"
+version = "0.1.0"
+description = "Structural geometry metrics for binary-outcome systems."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [
+  { name = "Nick Rotich" }
+]
+keywords = [
+  "reinforcement-learning",
+  "analytics",
+  "evaluation",
+  "risk",
+  "optimization",
+  "metrics"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Software Development :: Libraries :: Python Modules"
+]
+dependencies = [
+  # Keep the base install lightweight. Heavy API/training/benchmark packages
+  # belong in optional extras below so runtime consumers like Freqtrade do not
+  # pull torch/CUDA, transformers, OpenML, Redis, or FastAPI stacks.
+  "numpy>=2.0,<3.0",
+  "pandas<3.0,>=2.2.0"
+]
+
+[project.optional-dependencies]
+freqtrade-runtime = [
+  # Runtime dependencies needed by Freqtrade strategies and the Karakana
+  # policy/shadow/health sidecars. Torch is intentionally installed by the
+  # Freqtrade image from the CPU wheel index before this package is installed.
+  "numpy>=2.0,<3.0",
+  "pandas<3.0,>=2.2.0"
+]
+grg = [
+  # Minimal dependency needed by `karakana.trainers.grg.GRGController`.
+  # NumPy is already supplied by the base karakana installation.
+  "torch==2.11.0"
+]
+freqtrade-hyperopt = [
+  # No hyperopt-only karakana dependencies are currently required beyond
+  # freqtrade-runtime. Freqtrade's own hyperopt stack (optuna, joblib,
+  # rapidjson, rich, etc.) is provided by the Freqtrade environment.
+]
+benchmark = [
+  "swig",
+  "click",
+  "requests",
+  "gymnasium==1.2.3",
+  "AutoROM.accept-rom-license",
+  "ale-py", "opencv-python-headless",
+  "mujoco",
+  "box2d-py",
+  "openml==0.15.1",
+  "pandas<3.0,>=2.2.0",
+  "numpy>=2.0,<3.0",
+  "scikit-learn>=1.3,<2.0"
+]
+api = [
+  "pytest==9.0.3",
+  "fastapi==0.136.1",
+  "uvicorn==0.46.0",
+  "pydantic==2.13.3",
+  "httpx==0.28.1",
+  "sqlalchemy==2.0.49",
+  "redis==7.4.0",
+  "fakeredis==2.35.1",
+  "passlib[bcrypt]",
+  "python-jose[cryptography]",
+  "python-multipart",
+  "pypdf",
+  "python-docx",
+  "fpdf2",
+  "matplotlib",
+  "click",
+  "requests",
+  "gymnasium==1.2.3",
+  "AutoROM.accept-rom-license",
+  "ale-py", "opencv-python-headless",
+  "mujoco",
+  "box2d-py",
+  "imageio",
+  "imageio-ffmpeg",
+  # The API imports the dataset inspection/training service at startup.
+  "scikit-learn>=1.3,<2.0",
+  "onnx",
+  "onnxscript"
+]
+edge = [
+  "pyserial",
+  "websockets"
+]
+training = [
+  "torch==2.11.0",
+  "transformers",
+  "datasets",
+  "peft",
+  "python-dotenv",
+  "scikit-learn",
+  "tqdm",
+  "bitsandbytes",
+  "accelerate",
+  "click",
+  "requests",
+  "gymnasium==1.2.3",
+  "AutoROM.accept-rom-license",
+  "ale-py", "opencv-python-headless",
+  "mujoco",
+  "box2d-py",
+  "imageio",
+  "imageio-ffmpeg",
+  "onnx",
+  "onnxscript"
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "N", "B", "SIM"]
+ignore = [
+  "E501",   # line-too-long (handled by formatter)
+  "B904",   # raise-within-try (too many false positives)
+  "SIM115", # open-file-with-context-handler (pandas CSV compat)
+  "N802",   # function name should be lowercase (allowed for test function names)
+  "N803",   # argument name should be lowercase
+  "N806",   # variable in function should be lowercase
+  "B008",   # function call in default argument (FastAPI Depends standard pattern)
+  "B905",   # zip without explicit strict
+  "E402",   # module import not at top of file
+  "SIM108", # if-else block instead of if-exp
+  "SIM105", # suppressible-exception
+  "N812",   # lowercase imported as non-lowercase (e.g. torch.nn.functional as F)
+  "N815",   # variable in class scope should not be mixedCase (e.g. coupling_K)
+  "SIM118", # in dict.keys()
+  "W291",   # trim trailing whitespaces
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["N802", "N803", "N806", "F841"]
+"karakana_api/tests/*.py" = ["N802", "N803", "N806", "F841"]
+"*.ipynb" = ["N816"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.setuptools]
+include-package-data = false
+
+[project.scripts]
+karakana-shadow-trader = "karakana.runtime.shadow_trader:main"
+karakana-shadow-health = "karakana.runtime.strategy_health:main"
+
+[tool.setuptools.packages.find]
+include = ["karakana*", "karakana_api*"]
+exclude = ["karakana_dashboard*", "*.tests", "*.tests.*"]

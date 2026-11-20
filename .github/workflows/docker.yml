@@ -1,0 +1,115 @@
+name: Karakana Image
+
+# Builds the Freqtrade + Karakana runtime image and pushes it to Docker Hub.
+#
+# Required repository secrets:
+#   DOCKERHUB_USERNAME  Docker Hub user that can push moinonin/freqtrade-karakana
+#   DOCKERHUB_TOKEN     Docker Hub access token (read/write)
+#
+# Publishing:
+#   - Push a tag named v1.0.3          -> publishes :1.0.3 and :latest
+#   - Or run this workflow manually with an explicit tag.
+#
+# Downstream deploys (freqtrade repo, scripts/deploy_cloud.sh) pin the resolved
+# digest in .env, so a tag is only the input; the running container is always
+# an immutable digest.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish (for example 1.0.3)"
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: karakana-image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: "moinonin/freqtrade-karakana"
+
+jobs:
+  build-and-push:
+    name: "Build and push linux/amd64 + linux/arm64"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME#v}"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^[0-9A-Za-z._-]+$'; then
+            echo "ERROR: invalid image tag: $TAG" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:latest
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Write digest
+        run: |
+          set -euo pipefail
+          DIGEST="${{ steps.build.outputs.digest }}"
+          PIN="${IMAGE_NAME}@${DIGEST}"
+          printf '%s\n' "$DIGEST" > digest.txt
+          {
+            echo "### Karakana image published"
+            echo ""
+            echo "- Tag: \`${IMAGE_NAME}:${{ steps.tag.outputs.tag }}\`"
+            echo "- Digest: \`$DIGEST\`"
+            echo "- Pin: \`$PIN\`"
+            echo ""
+            echo "Deploy with:"
+            echo '```sh'
+            echo "./scripts/deploy_cloud.sh <user@vps> <config.json> '${PIN}'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: karakana-image-digest-${{ steps.tag.outputs.tag }}
+          path: digest.txt
+          retention-days: 90
