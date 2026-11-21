@@ -110,17 +110,20 @@ def _load_signals(path: Path, max_rows: int | None, tail_rows: int | None) -> pd
     return frame
 
 
-def _pair_exit_index(frame: pd.DataFrame, source_index: int, horizon_rows: int) -> int | None:
-    if "pair" not in frame:
-        return source_index + horizon_rows if source_index + horizon_rows < len(frame) else None
-    pair = frame.iloc[source_index]["pair"]
-    seen = 0
-    for idx in range(source_index + 1, len(frame)):
-        if frame.iloc[idx]["pair"] == pair:
-            seen += 1
-            if seen >= horizon_rows:
-                return idx
-    return None
+def _exit_index_by_row(frame: pd.DataFrame, horizon_rows: int) -> dict[int, int]:
+    """Map each row to the row `horizon_rows` later for the same pair.
+
+    Replaces a per-row forward scan (O(n^2) pandas indexing) with one grouping
+    pass; a 50k-row sweep otherwise takes hours instead of minutes.
+    """
+    groups: dict[str, list[int]] = {}
+    for idx, pair in enumerate(frame["pair"].astype(str).tolist()):
+        groups.setdefault(pair, []).append(idx)
+    mapping: dict[int, int] = {}
+    for idxs in groups.values():
+        for pos in range(0, len(idxs) - horizon_rows):
+            mapping[idxs[pos]] = idxs[pos + horizon_rows]
+    return mapping
 
 
 @dataclass(frozen=True)
@@ -143,11 +146,15 @@ def _build_candidates(args: argparse.Namespace, frame: pd.DataFrame) -> list[Can
         threshold_governor_enabled=False,
     )
     candidates: list[Candidate] = []
-    last_index = len(frame) - int(args.horizon_rows)
-    for source_index in range(max(0, last_index)):
+    exit_index_by_row = (
+        _exit_index_by_row(frame, int(args.horizon_rows))
+        if args.horizon_mode == "pair" and "pair" in frame
+        else None
+    )
+    for source_index in range(len(frame)):
         row = frame.iloc[source_index]
-        if args.horizon_mode == "pair":
-            exit_index = _pair_exit_index(frame, source_index, int(args.horizon_rows))
+        if exit_index_by_row is not None:
+            exit_index = exit_index_by_row.get(source_index)
         else:
             exit_index = source_index + int(args.horizon_rows)
         if exit_index is None or exit_index >= len(frame):

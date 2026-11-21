@@ -50,16 +50,16 @@ health CSV.
 make build
 
 # Build + push linux/amd64 and linux/arm64, retag :latest
-make push TAG=1.0.4
+make push TAG=1.0.5
 
 # Arm64-only image loaded into the local docker for smoke tests
 make load-arm64
 
 # Show the pushed manifest and per-platform digests
-make inspect TAG=1.0.4
+make inspect TAG=1.0.5
 ```
 
-CI publishing: push a tag `v1.0.4` (or run the workflow manually with a tag).
+CI publishing: push a tag `v1.0.5` (or run the workflow manually with a tag).
 Requires repo secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` with write
 access to the Docker Hub repo.
 

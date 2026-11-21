@@ -3,7 +3,7 @@
 # access to moinonin/freqtrade-karakana (docker login).
 
 IMAGE     ?= moinonin/freqtrade-karakana
-TAG       ?= 1.0.4
+TAG       ?= 1.0.5
 PLATFORMS ?= linux/amd64,linux/arm64
 BUILDER   ?= multi-arch-builder
 
