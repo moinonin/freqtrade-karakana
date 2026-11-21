@@ -58,11 +58,18 @@ ENV PIP_NO_CACHE_DIR=1 \
 USER ftuser
 COPY --from=installer --chown=ftuser:ftuser /home/ftuser/.local /home/ftuser/.local
 
-RUN mkdir -p /freqtrade/karakana /freqtrade/plot_equity /freqtrade/user_data/logs
+RUN mkdir -p /freqtrade/karakana /freqtrade/karakana_tools /freqtrade/plot_equity /freqtrade/user_data/logs
 COPY --chown=ftuser:ftuser config/karakana-config.json /freqtrade/karakana/
+# Operational sidecars: threshold sweep/scheduler and runtime monitor. These are
+# host-agnostic Python scripts (stdlib + pandas + karakana) so the cloud stack can
+# run the scheduler without syncing any source tree to the VPS.
+COPY --chown=ftuser:ftuser tools /freqtrade/karakana_tools
 RUN touch /freqtrade/user_data/__init__.py /freqtrade/user_data/logs/freqtrade.log
 RUN python -c "from karakana.runtime.policy import KarakanaOfflinePolicy; import karakana.runtime.shadow_trader; import karakana.runtime.strategy_health" && \
     command -v karakana-shadow-trader && \
-    command -v karakana-shadow-health
+    command -v karakana-shadow-health && \
+    python /freqtrade/karakana_tools/threshold_scheduler.py --help >/dev/null && \
+    python /freqtrade/karakana_tools/sweep_live_shadow_thresholds.py --help >/dev/null && \
+    python /freqtrade/karakana_tools/monitor_karakana_runtime.py --help >/dev/null
 
 USER ftuser

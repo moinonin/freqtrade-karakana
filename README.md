@@ -15,6 +15,7 @@ this build layers the Karakana Python package and the two sidecar CLIs on top.
 | `pyproject.toml` | Karakana wheel metadata (console scripts: `karakana-shadow-trader`, `karakana-shadow-health`) |
 | `karakana/` | The Python package (SGO math, runtime sidecars) |
 | `config/karakana-config.json` | Copied to `/freqtrade/karakana/` in the image |
+| `tools/` | Operational scripts copied to `/freqtrade/karakana_tools/`: threshold scheduler, live threshold sweep, runtime monitor |
 | `Makefile` | `make build` / `make push` / `make load-arm64` |
 | `.github/workflows/docker.yml` | CI: builds and pushes `linux/amd64` + `linux/arm64` on `v*` tags or manual dispatch |
 
@@ -25,6 +26,22 @@ The image pins these runtime deps regardless of the Freqtrade base:
 - `ccxt==4.5.54` (with `setuptools<82` to satisfy torch's constraint)
 - `gymnasium==1.2.3`
 - `ft-scikit-optimize==0.9.2`, `termcolor`, `pygments`
+
+### Sidecar tools
+
+`tools/` is baked into the image at `/freqtrade/karakana_tools/` so a pull-only
+VPS can run the calibration loop without syncing a source tree:
+
+| Script | Purpose |
+|---|---|
+| `threshold_scheduler.py` | Periodic sweep wrapper; preflights signal volume, runs the sweep, writes state/log/recommendations |
+| `sweep_live_shadow_thresholds.py` | Replays the signals CSV across long/short threshold grids and ranks candidates |
+| `monitor_karakana_runtime.py` | Compacts append-only CSVs and writes a runtime status JSON |
+
+The scheduler records recommendations by default; patching compose or
+restarting sidecars stays opt-in (`KARAKANA_THRESHOLD_SCHEDULER_APPLY` /
+`..._RESTART_SIDECARS`) because the live threshold governor already follows the
+health CSV.
 
 ## Build & publish
 
@@ -52,8 +69,9 @@ Deployments are driven from the Freqtrade repo:
 
 - `scripts/deploy_cloud.sh <user@vps> <config.json> [image]` syncs the stack to
   a VPS and pins the pulled `@sha256:` digest in the remote `.env`.
-- `docker-compose-cloud.yml` runs `freqtrade trade` plus the two Karakana
-  sidecars (`karakana-shadow-trader`, `karakana-shadow-health`).
+- `docker-compose-cloud.yml` runs `freqtrade trade`, the two Karakana
+  sidecars (`karakana-shadow-trader`, `karakana-shadow-health`), and the
+  `karakana-threshold-scheduler` calibration service.
 
 Strategy files, SQLite DBs, exchange configs, and Karakana policies stay out
 of this image — they live in the mounted `user_data/` volume.
