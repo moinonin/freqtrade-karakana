@@ -425,19 +425,35 @@ def _patch_compose(
     health_window_step: int | None,
     health_poll_seconds: int | None,
 ) -> None:
+    """Patch the compose file with new threshold and health parameters.
+
+    Updates both env vars and CLI args for:
+    - Shadow trader: KARAKANA_SHADOW_LONG_THRESHOLD, KARAKANA_SHADOW_SHORT_THRESHOLD,
+      --long-threshold, --short-threshold
+    - Shadow health: KARAKANA_HEALTH_BASE_LONG_THRESHOLD, KARAKANA_HEALTH_BASE_SHORT_THRESHOLD,
+      --base-long-threshold, --base-short-threshold
+    - Health window: KARAKANA_HEALTH_WINDOW_SIZE, KARAKANA_HEALTH_WINDOW_STEP,
+      KARAKANA_HEALTH_POLL_SECONDS, --window-size, --window-step, --poll-seconds
+
+    Does NOT patch KARAKANA_HISTORICAL_MIN_ARMED_ROWS (strategy governor parameter)
+    as it is a separate tuning knob from the health window size.
+    """
     text = path.read_text(encoding="utf-8")
     updated = text
+    # Shadow trader thresholds (env + CLI)
     for key in ("KARAKANA_SHADOW_LONG_THRESHOLD", "KARAKANA_HEALTH_BASE_LONG_THRESHOLD"):
         updated = _replace_line_value(updated, key, long_threshold)
     for key in ("KARAKANA_SHADOW_SHORT_THRESHOLD", "KARAKANA_HEALTH_BASE_SHORT_THRESHOLD"):
         updated = _replace_line_value(updated, key, short_threshold)
+    # Health window parameters (env + CLI)
     updated = _replace_optional_line_value(updated, "KARAKANA_HEALTH_WINDOW_SIZE", health_window_size)
-    updated = _replace_optional_line_value(updated, "KARAKANA_HISTORICAL_MIN_ARMED_ROWS", health_window_size)
     updated = _replace_optional_line_value(updated, "KARAKANA_HEALTH_WINDOW_STEP", health_window_step)
     updated = _replace_optional_line_value(updated, "KARAKANA_HEALTH_POLL_SECONDS", health_poll_seconds)
+    # Shadow trader CLI args
     updated = _replace_cli_arg(updated, "--long-threshold", long_threshold)
-    updated = _replace_cli_arg(updated, "--base-long-threshold", long_threshold)
     updated = _replace_cli_arg(updated, "--short-threshold", short_threshold)
+    # Shadow health CLI args
+    updated = _replace_cli_arg(updated, "--base-long-threshold", long_threshold)
     updated = _replace_cli_arg(updated, "--base-short-threshold", short_threshold)
     updated = _replace_health_cli_arg(updated, "--window-size", health_window_size)
     updated = _replace_health_cli_arg(updated, "--window-step", health_window_step)

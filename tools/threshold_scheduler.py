@@ -215,29 +215,40 @@ def _choose_interval(args: argparse.Namespace, state: dict[str, Any], current_ro
     return int(candidates[-1])
 
 
-def _docker_restart(container: str, socket_path: Path, timeout_seconds: int) -> None:
-    conn = UnixHTTPConnection(str(socket_path))
-    conn.request("POST", f"/containers/{container}/restart?t={int(timeout_seconds)}")
-    response = conn.getresponse()
-    body = response.read().decode("utf-8", errors="replace")
-    conn.close()
-    if response.status not in (204, 304):
-        raise RuntimeError(f"Docker restart failed for {container}: {response.status} {body}")
-
-
 def _restart_sidecars(args: argparse.Namespace) -> list[str]:
+    """Recreate sidecar containers via 'docker compose up -d' so new env vars take effect.
+
+    This replaces the old simple restart which only re-executed the existing container
+    config. Recreating is required because thresholds are passed as env vars / CLI args
+    at container create time.
+    """
     if not args.restart_sidecars:
         return []
+    if not args.compose_file.exists():
+        raise FileNotFoundError(f"Compose file not found: {args.compose_file}")
     if not args.docker_socket.exists():
         raise FileNotFoundError(f"Docker socket not mounted: {args.docker_socket}")
-    restarted: list[str] = []
-    for container in args.sidecar_containers.split(","):
-        name = container.strip()
-        if not name:
-            continue
-        _docker_restart(name, args.docker_socket, args.restart_timeout_seconds)
-        restarted.append(name)
-    return restarted
+
+    containers = [c.strip() for c in args.sidecar_containers.split(",") if c.strip()]
+    if not containers:
+        return []
+
+    # Use docker compose (not the raw socket) so the updated compose file is read
+    # and containers are recreated with new env vars / command args.
+    import subprocess
+    cmd = [
+        "docker",
+        "--host", f"unix://{args.docker_socket}",
+        "compose",
+        "-f", str(args.compose_file),
+        "up", "-d",
+        "--no-deps",
+    ] + containers
+    logging.info("Recreating sidecars with updated config: %s", " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"docker compose up failed: {result.stderr.strip() or result.stdout.strip()}")
+    return containers
 
 
 def _build_sweep_command(args: argparse.Namespace) -> list[str]:
@@ -436,7 +447,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--source", type=Path, default=Path("user_data/freqtrade_signals_karakana.csv"))
     parser.add_argument("--policy-root", type=Path, default=Path("user_data/karakana_policy/watch"))
-    parser.add_argument("--compose-file", type=Path, default=Path("custom-docker-compose.yml"))
+    parser.add_argument("--compose-file", type=Path, default=Path("docker-compose-karakana.yml"))
     parser.add_argument("--output-csv", type=Path, default=Path("user_data/reports/karakana_live_threshold_sweep.csv"))
     parser.add_argument("--output-json", type=Path, default=Path("user_data/reports/karakana_live_threshold_sweep.json"))
     parser.add_argument("--state-json", type=Path, default=Path("user_data/reports/karakana_threshold_scheduler_state.json"))
