@@ -50,16 +50,16 @@ health CSV.
 make build
 
 # Build + push linux/amd64 and linux/arm64, retag :latest
-make push TAG=1.0.5
+make push TAG=1.0.6
 
 # Arm64-only image loaded into the local docker for smoke tests
 make load-arm64
 
 # Show the pushed manifest and per-platform digests
-make inspect TAG=1.0.5
+make inspect TAG=1.0.6
 ```
 
-CI publishing: push a tag `v1.0.5` (or run the workflow manually with a tag).
+CI publishing: push a tag `v1.0.6` (or run the workflow manually with a tag).
 Requires repo secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` with write
 access to the Docker Hub repo.
 
@@ -75,6 +75,16 @@ Deployments are driven from the Freqtrade repo:
 
 Strategy files, SQLite DBs, exchange configs, and Karakana policies stay out
 of this image — they live in the mounted `user_data/` volume.
+
+## Operations Guide
+
+See [`OPERATIONS.md`](OPERATIONS.md) for:
+- Quick start (pull & run)
+- One-off sweep / shadow trader / health monitor usage
+- Auto-apply configuration (compose patching + sidecar recreation)
+- Build commands
+- Version history
+- Troubleshooting table
 
 ## Known quirk
 
