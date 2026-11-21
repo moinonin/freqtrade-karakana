@@ -135,18 +135,37 @@ def build_shadow_trades(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
         end_limit = len(source)
         if args.max_rows is not None:
             end_limit = min(end_limit, start_row + int(args.max_rows))
-        last_eligible_row = start_row
-        while last_eligible_row < end_limit and last_eligible_row in exit_index_by_row:
-            last_eligible_row += 1
+        # A pair that stopped appearing (delisted/illiquid) leaves trailing
+        # rows that can never get a horizon-complete exit. Walking contiguously
+        # from such a row used to stall the trader forever. Collect every
+        # evaluable row instead: skip stale un-evaluable rows, and stop only at
+        # a live tail row so it is retried once future candles supply exits.
+        pair_last_index = {pair: idxs[-1] for pair, idxs in pair_groups.items()}
+        pair_of_row = {idx: pair for pair, idxs in pair_groups.items() for idx in idxs}
+        live_window = max(1, horizon * len(pair_groups))
+        eligible_indices: list[int] = []
+        cursor = start_row
+        while cursor < end_limit:
+            if cursor in exit_index_by_row:
+                eligible_indices.append(cursor)
+            elif pair_last_index[pair_of_row[cursor]] < end_limit - live_window:
+                pass  # stale pair row: permanently un-evaluable, skip it
+            else:
+                break  # live tail row: retry after future candles arrive
+            cursor += 1
+        scan_start = eligible_indices[0] if eligible_indices else start_row
+        last_eligible_row = cursor
     else:
+        scan_start = start_row
         last_eligible_row = max(0, len(source) - horizon)
         if args.max_rows is not None:
             last_eligible_row = min(last_eligible_row, start_row + int(args.max_rows))
+        eligible_indices = list(range(scan_start, last_eligible_row))
 
-    if start_row >= last_eligible_row:
+    if not eligible_indices:
         return pd.DataFrame(), {
             "source_rows": int(len(source)),
-            "start_row": start_row,
+            "start_row": scan_start,
             "last_eligible_row": last_eligible_row,
             "virtual_trades": 0,
             "reason": "no_new_horizon_complete_rows",
@@ -167,7 +186,7 @@ def build_shadow_trades(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
     margin_failures = {0: 0, 1: 0}
     admitted = {0: 0, 1: 0}
 
-    for source_index in range(start_row, last_eligible_row):
+    for source_index in eligible_indices:
         row = source.iloc[source_index]
         exit_index = exit_index_by_row[source_index] if exit_index_by_row is not None else source_index + horizon
         exit_row = source.iloc[exit_index]
@@ -223,7 +242,7 @@ def build_shadow_trades(args: argparse.Namespace) -> tuple[pd.DataFrame, dict[st
         "source": str(args.source),
         "policy_dir": str(model_dir),
         "source_rows": int(len(source)),
-        "start_row": int(start_row),
+        "start_row": int(scan_start),
         "end_row": int(last_eligible_row),
         "horizon_rows": int(args.horizon_rows),
         "evaluated_candidates": int(evaluated),
