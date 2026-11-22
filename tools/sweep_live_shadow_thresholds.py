@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import math
 import re
 from dataclasses import dataclass
@@ -400,6 +401,25 @@ def _replace_optional_cli_arg(text: str, arg_name: str, value: int | None) -> st
     return _replace_cli_arg(text, arg_name, float(value) if isinstance(value, float) else value)
 
 
+def _replace_cli_arg_in_service(text: str, service: str, arg_name: str, value: float) -> str:
+    """Replace a CLI arg only inside one compose service block.
+
+    A bare regex over the whole file would also hit the scheduler's own
+    --long-thresholds / --short-thresholds sweep grid, corrupting it.
+    """
+    marker = f"  {service}:"
+    start = text.find(marker)
+    if start < 0:
+        return text
+    next_match = re.search(r"\n  [A-Za-z0-9_-]+:", text[start + len(marker) :])
+    if next_match is None:
+        head, block, tail = text[:start], text[start:], ""
+    else:
+        next_service = start + len(marker) + next_match.start()
+        head, block, tail = text[:start], text[start:next_service], text[next_service:]
+    return head + _replace_cli_arg(block, arg_name, value) + tail
+
+
 def _replace_health_cli_arg(text: str, arg_name: str, value: int | None) -> str:
     if value is None:
         return text
@@ -449,20 +469,35 @@ def _patch_compose(
     updated = _replace_optional_line_value(updated, "KARAKANA_HEALTH_WINDOW_SIZE", health_window_size)
     updated = _replace_optional_line_value(updated, "KARAKANA_HEALTH_WINDOW_STEP", health_window_step)
     updated = _replace_optional_line_value(updated, "KARAKANA_HEALTH_POLL_SECONDS", health_poll_seconds)
-    # Shadow trader CLI args
-    updated = _replace_cli_arg(updated, "--long-threshold", long_threshold)
-    updated = _replace_cli_arg(updated, "--short-threshold", short_threshold)
+    # Shadow trader CLI args (scoped to the shadow-trader service block so the
+    # scheduler's own --long-thresholds/--short-thresholds grid is untouched)
+    updated = _replace_cli_arg_in_service(updated, "karakana-shadow-trader", "--long-threshold", long_threshold)
+    updated = _replace_cli_arg_in_service(updated, "karakana-shadow-trader", "--short-threshold", short_threshold)
     # Shadow health CLI args
-    updated = _replace_cli_arg(updated, "--base-long-threshold", long_threshold)
-    updated = _replace_cli_arg(updated, "--base-short-threshold", short_threshold)
+    updated = _replace_cli_arg_in_service(updated, "karakana-shadow-health", "--base-long-threshold", long_threshold)
+    updated = _replace_cli_arg_in_service(updated, "karakana-shadow-health", "--base-short-threshold", short_threshold)
     updated = _replace_health_cli_arg(updated, "--window-size", health_window_size)
     updated = _replace_health_cli_arg(updated, "--window-step", health_window_step)
     updated = _replace_health_cli_arg(updated, "--poll-seconds", health_poll_seconds)
-    if updated == text:
-        raise RuntimeError(f"No threshold lines were updated in {path}")
-    backup = path.with_suffix(path.suffix + ".bak")
-    backup.write_text(text, encoding="utf-8")
-    path.write_text(updated, encoding="utf-8")
+    if updated != text:
+        backup = path.with_suffix(path.suffix + ".bak")
+        backup.write_text(text, encoding="utf-8")
+        path.write_text(updated, encoding="utf-8")
+        logging.info("Patched compose thresholds in %s", path)
+        changed = True
+    else:
+        # Nothing to change is a legitimate steady state (the recommended values
+        # already match the compose file). Do not fail the run in that case.
+        logging.info("Compose thresholds already match the recommendation; no changes needed.")
+        changed = False
+    return {
+        "long_threshold": float(long_threshold),
+        "short_threshold": float(short_threshold),
+        "health_window_size": health_window_size,
+        "health_window_step": health_window_step,
+        "health_poll_seconds": health_poll_seconds,
+        "changed": changed,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -518,7 +553,7 @@ def main() -> None:
                 "Refusing to patch compose: sweep did not produce a viable recommendation. "
                 "Increase tail rows, loosen min trades, or inspect the output JSON."
             )
-        _patch_compose(
+        applied = _patch_compose(
             args.compose_file,
             float(recommended["long_threshold"]),
             float(recommended["short_threshold"]),
@@ -533,6 +568,8 @@ def main() -> None:
             else int(recommended["health_poll_seconds"]),
         )
         summary["applied_compose_file"] = str(args.compose_file)
+        summary["applied_long_threshold"] = applied["long_threshold"]
+        summary["applied_short_threshold"] = applied["short_threshold"]
         summary["applied_health_window_size"] = (
             args.apply_health_window_size
             if args.apply_health_window_size is not None

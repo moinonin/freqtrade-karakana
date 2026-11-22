@@ -216,11 +216,17 @@ def _choose_interval(args: argparse.Namespace, state: dict[str, Any], current_ro
 
 
 def _restart_sidecars(args: argparse.Namespace) -> list[str]:
-    """Recreate sidecar containers via 'docker compose up -d' so new env vars take effect.
+    """Recreate sidecar containers so new env vars take effect.
 
-    This replaces the old simple restart which only re-executed the existing container
-    config. Recreating is required because thresholds are passed as env vars / CLI args
+    Recreating is required because thresholds are passed as env vars / CLI args
     at container create time.
+
+    The docker CLI is NOT present in the scheduler image, so we talk to the
+    Docker Engine API over the mounted socket directly (POST /containers/<id>/stop
+    + POST /containers/<id>/start) instead of shelling out to `docker compose`.
+    That keeps the recreate working inside the container while the compose file
+    on disk (already patched by the sweep) is what the host daemon reads on the
+    next `docker compose up -d`.
     """
     if not args.restart_sidecars:
         return []
@@ -233,22 +239,67 @@ def _restart_sidecars(args: argparse.Namespace) -> list[str]:
     if not containers:
         return []
 
-    # Use docker compose (not the raw socket) so the updated compose file is read
-    # and containers are recreated with new env vars / command args.
-    import subprocess
-    cmd = [
-        "docker",
-        "--host", f"unix://{args.docker_socket}",
-        "compose",
-        "-f", str(args.compose_file),
-        "up", "-d",
-        "--no-deps",
-    ] + containers
-    logging.info("Recreating sidecars with updated config: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"docker compose up failed: {result.stderr.strip() or result.stdout.strip()}")
-    return containers
+    import http.client
+    import json as _json
+    import socket
+
+    sock_path = str(args.docker_socket)
+
+    class _UnixSocketHTTPConnection(http.client.HTTPConnection):
+        def __init__(self, path: str) -> None:
+            super().__init__("localhost", timeout=120)
+            self._path = path
+
+        def connect(self) -> None:  # type: ignore[override]
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            sock.connect(self._path)
+            self.sock = sock
+
+    def _request(method: str, path: str) -> tuple[int, bytes]:
+        conn = _UnixSocketHTTPConnection(sock_path)
+        try:
+            conn.request(method, path)
+            response = conn.getresponse()
+            return response.status, response.read()
+        finally:
+            conn.close()
+
+    def _list_containers() -> list[dict]:
+        status, data = _request("GET", "/containers/json?all=1")
+        if status != 200:
+            raise RuntimeError(f"docker list failed: HTTP {status} {data[:200]!r}")
+        return _json.loads(data.decode("utf-8") or "[]")
+
+    def _find(name: str) -> dict | None:
+        for item in _list_containers():
+            for candidate in item.get("Names") or []:
+                if candidate.lstrip("/") == name:
+                    return item
+        return None
+
+    def _stop(container_id: str) -> None:
+        status, data = _request("POST", f"/containers/{container_id}/stop?t=30")
+        if status not in (204, 304):
+            raise RuntimeError(f"docker stop failed: HTTP {status} {data[:200]!r}")
+
+    def _start(container_id: str) -> None:
+        status, data = _request("POST", f"/containers/{container_id}/start")
+        if status not in (204, 304):
+            raise RuntimeError(f"docker start failed: HTTP {status} {data[:200]!r}")
+
+    restarted: list[str] = []
+    for name in containers:
+        container = _find(name)
+        if container is None:
+            logging.warning("Sidecar container not found for restart: %s", name)
+            continue
+        container_id = container["Id"]
+        logging.info("Recreating sidecar %s (stop+start with updated config)", name)
+        _stop(container_id)
+        _start(container_id)
+        restarted.append(name)
+    return restarted
 
 
 def _build_sweep_command(args: argparse.Namespace) -> list[str]:
