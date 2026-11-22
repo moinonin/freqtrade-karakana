@@ -277,6 +277,8 @@ def _build_sweep_command(args: argparse.Namespace) -> list[str]:
         str(args.horizon_rows),
         "--horizon-mode",
         args.horizon_mode,
+        "--fee-bps",
+        str(args.fee_bps),
         "--min-trades",
         str(args.min_trades),
         "--min-side-trades",
@@ -491,6 +493,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--health-poll-seconds-values", default="60")
     parser.add_argument("--horizon-rows", type=int, default=12)
     parser.add_argument("--horizon-mode", choices=["pair", "row"], default="pair")
+    parser.add_argument(
+        "--fee-bps",
+        type=float,
+        default=0.0,
+        help="Round-trip trading fee in basis points passed to the sweep (0 = fee-free).",
+    )
     parser.add_argument("--min-trades", type=int, default=128)
     parser.add_argument("--min-side-trades", type=int, default=8)
     parser.add_argument("--win-rate-weight", type=float, default=0.1)
