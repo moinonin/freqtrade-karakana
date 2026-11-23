@@ -1,0 +1,125 @@
+{
+    "stake_currency": "USDT",
+    "exchange": {
+        "name": "bybit",
+        "key": "",
+        "secret": "",
+        "ccxt_config": {
+            "enableRateLimit": true
+        },
+        "ccxt_async_config": {
+            "enableRateLimit": true
+        },
+        "pair_whitelist": [
+            "AR/USDT:USDT",
+            "BCH/USDT:USDT",
+            "BNB/USDT:USDT",
+            "BTC/USDT:USDT",
+            "COMP/USDT:USDT",
+            "DASH/USDT:USDT",
+            "EGLD/USDT:USDT",
+            "ENS/USDT:USDT",
+            "ETH/USDT:USDT",
+            "PAXG/USDT:USDT"
+        ],
+        "pair_blacklist": [
+            "TUSD/USDT:USDT",
+            "USDC/USDT:USDT",
+            "USDS/USDT:USDT",
+            "BUSD/USDT:USDT"
+        ],
+        "proxy_coin": "",
+        "margin_mode": "isolated",
+        "trading_mode": "futures"
+    },
+    "stoploss": -0.05,
+    "max_open_trades": 10,
+    "order_time_in_force": {
+        "entry": "gtc",
+        "exit": "gtc"
+    },
+    "stake_amount": "unlimited",
+    "tradable_balance_ratio": 0.99,
+    "fiat_display_currency": "USD",
+    "timeframe": "1m",
+    "use_exit_signal": true,
+    "exit_profit_offset": 0,
+    "exit_profit_only": false,
+    "ignore_roi_if_entry_signal": true,
+    "futures_funding_rate": 0,
+    "trailing_stop": false,
+    "amend_last_stake_amount": true,
+    "dry_run": true,
+    "bot_name": "freqtrade-karakana",
+    "db_url": "sqlite:///user_data/tradesv3.sqlite",
+    "initial_state": "running",
+    "force_entry_enable": true,
+    "disable_dataframe_checks": false,
+    "strategy": "Strategy322sgo",
+    "strategy_path": "user_data/strategies/",
+    "dataformat_ohlcv": "json",
+    "dataformat_trades": "jsongz",
+    "dry_run_wallet": 10000.0,
+    "position_adjustment_enable": true,
+    "trading_mode": "futures",
+    "margin_mode": "isolated",
+    "proxy_coin": "",
+    "ignore_buying_expired_candle_after": 120,
+    "unfilledtimeout": {
+        "entry": 8,
+        "exit": 6,
+        "exit_timeout_count": 0,
+        "unit": "minutes"
+    },
+    "entry_pricing": {
+        "price_side": "same",
+        "price_last_balance": 0.0,
+        "use_order_book": true,
+        "order_book_top": 1,
+        "check_depth_of_market": {
+            "enabled": false,
+            "bids_to_ask_delta": 1
+        }
+    },
+    "order_types": {
+        "entry": "limit",
+        "exit": "limit",
+        "emergency_exit": "market",
+        "stoploss": "market",
+        "force_exit": "limit",
+        "force_entry": "limit",
+        "stoploss_on_exchange": true,
+        "stoploss_on_exchange_interval": 60,
+        "stoploss_on_exchange_limit_ratio": 0.99
+    },
+    "exit_pricing": {
+        "price_side": "same",
+        "use_order_book": true,
+        "order_book_top": 1,
+        "unfilledtimeout": 1
+    },
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        },
+        {
+            "method": "PriceFilter",
+            "low_price_ratio": 0.2,
+            "min_price": 3e-07
+        }
+    ],
+    "internals": {
+        "process_throttle_sec": 5,
+        "heartbeat_interval": 60
+    },
+    "api_server": {
+        "enabled": false,
+        "listen_ip_address": "127.0.0.1",
+        "listen_port": 8080,
+        "verbosity": "error",
+        "jwt_secret_key": "",
+        "CORS_ORIGINS": [],
+        "username": "",
+        "password": ""
+    }
+}
