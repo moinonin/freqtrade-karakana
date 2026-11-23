@@ -91,6 +91,10 @@ tail -n 20 user_data/logs/freqtrade.log
 wc -l user_data/freqtrade_signals_karakana.csv \
       user_data/reports/karakana_shadow_trade_history.csv \
       user_data/reports/directional_strategy_health.csv
+# Check live open & closed PnL (pure stdlib, no venv required)
+python3 tools/check_open_profit.py --db user_data/tradesv3.sqlite
+# Or live-watch every 15s:
+python3 tools/check_open_profit.py --db user_data/tradesv3.sqlite --watch 15
 ```
 
 ## What's in this repo
