@@ -348,7 +348,12 @@ def _sweep(args: argparse.Namespace, candidates: list[Candidate]) -> tuple[list[
     best = ranked[0] if ranked else {}
     summary = {
         "recommended": best,
-        "viable": bool(best and best.get("trades", 0) >= args.min_trades and best.get("score", -1e12) > -1e11),
+        "viable": bool(
+            best
+            and best.get("trades", 0) >= args.min_trades
+            and best.get("score", -1e12) > -1e11
+            and float(best.get("reward_mean", -1e12)) > float(args.min_reward_mean)
+        ),
         "candidate_count": len(candidates),
         "grid_size": len(rows),
         "long_thresholds": long_values,
@@ -359,6 +364,7 @@ def _sweep(args: argparse.Namespace, candidates: list[Candidate]) -> tuple[list[
         "objective": {
             "min_trades": args.min_trades,
             "min_side_trades": args.min_side_trades,
+            "min_reward_mean": args.min_reward_mean,
             "win_rate_weight": args.win_rate_weight,
             "balance_weight": args.balance_weight,
             "health_weight": args.health_weight,
@@ -519,6 +525,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-rows", type=int, default=None)
     parser.add_argument("--min-trades", type=int, default=128)
     parser.add_argument("--min-side-trades", type=int, default=8)
+    parser.add_argument(
+        "--min-reward-mean",
+        type=float,
+        default=0.0,
+        help="Strict lower bound on fee-adjusted reward_mean required for viable=True (default: 0.0).",
+    )
     parser.add_argument("--win-rate-weight", type=float, default=0.1)
     parser.add_argument("--balance-weight", type=float, default=0.1)
     parser.add_argument("--health-weight", type=float, default=0.05)
@@ -549,41 +561,47 @@ def main() -> None:
     recommended = summary.get("recommended") or {}
     if args.apply_compose:
         if not summary.get("viable"):
-            raise RuntimeError(
-                "Refusing to patch compose: sweep did not produce a viable recommendation. "
-                "Increase tail rows, loosen min trades, or inspect the output JSON."
+            logging.warning(
+                "Skipping compose patch: sweep produced no viable positive-expectancy recommendation "
+                "(best reward_mean=%s <= min_reward_mean=%s).",
+                recommended.get("reward_mean"),
+                args.min_reward_mean,
             )
-        applied = _patch_compose(
-            args.compose_file,
-            float(recommended["long_threshold"]),
-            float(recommended["short_threshold"]),
-            health_window_size=args.apply_health_window_size
-            if args.apply_health_window_size is not None
-            else int(recommended["health_window_size"]),
-            health_window_step=args.apply_health_window_step
-            if args.apply_health_window_step is not None
-            else int(recommended["health_window_step"]),
-            health_poll_seconds=args.apply_health_poll_seconds
-            if args.apply_health_poll_seconds is not None
-            else int(recommended["health_poll_seconds"]),
-        )
-        summary["applied_compose_file"] = str(args.compose_file)
-        summary["applied_long_threshold"] = applied["long_threshold"]
-        summary["applied_short_threshold"] = applied["short_threshold"]
-        summary["applied_health_window_size"] = (
-            args.apply_health_window_size
-            if args.apply_health_window_size is not None
-            else int(recommended["health_window_size"])
-        )
-        summary["applied_health_window_step"] = (
-            args.apply_health_window_step if args.apply_health_window_step is not None else int(recommended["health_window_step"])
-        )
-        summary["applied_health_poll_seconds"] = (
-            args.apply_health_poll_seconds
-            if args.apply_health_poll_seconds is not None
-            else int(recommended["health_poll_seconds"])
-        )
-        args.output_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            summary["applied_changed"] = False
+            args.output_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        else:
+            applied = _patch_compose(
+                args.compose_file,
+                float(recommended["long_threshold"]),
+                float(recommended["short_threshold"]),
+                health_window_size=args.apply_health_window_size
+                if args.apply_health_window_size is not None
+                else int(recommended["health_window_size"]),
+                health_window_step=args.apply_health_window_step
+                if args.apply_health_window_step is not None
+                else int(recommended["health_window_step"]),
+                health_poll_seconds=args.apply_health_poll_seconds
+                if args.apply_health_poll_seconds is not None
+                else int(recommended["health_poll_seconds"]),
+            )
+            summary["applied_compose_file"] = str(args.compose_file)
+            summary["applied_changed"] = bool(applied["changed"])
+            summary["applied_long_threshold"] = applied["long_threshold"]
+            summary["applied_short_threshold"] = applied["short_threshold"]
+            summary["applied_health_window_size"] = (
+                args.apply_health_window_size
+                if args.apply_health_window_size is not None
+                else int(recommended["health_window_size"])
+            )
+            summary["applied_health_window_step"] = (
+                args.apply_health_window_step if args.apply_health_window_step is not None else int(recommended["health_window_step"])
+            )
+            summary["applied_health_poll_seconds"] = (
+                args.apply_health_poll_seconds
+                if args.apply_health_poll_seconds is not None
+                else int(recommended["health_poll_seconds"])
+            )
+            args.output_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(json.dumps(summary, indent=2))
 

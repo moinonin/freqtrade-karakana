@@ -334,6 +334,8 @@ def _build_sweep_command(args: argparse.Namespace) -> list[str]:
         str(args.min_trades),
         "--min-side-trades",
         str(args.min_side_trades),
+        "--min-reward-mean",
+        str(args.min_reward_mean),
         "--win-rate-weight",
         str(args.win_rate_weight),
         "--balance-weight",
@@ -478,6 +480,18 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
         _write_json(args.state_json, state)
         return decision
 
+    if sweep_summary.get("applied_changed") is False:
+        logging.info("Compose thresholds unchanged; skipping sidecar restart.")
+        decision["restarted_sidecars"] = []
+        decision["action"] = "applied_unchanged"
+        state.update(decision)
+        state["last_signal_rows"] = signal_rows
+        state["last_run_epoch"] = time.time()
+        state["next_interval_seconds"] = _choose_interval(args, state, signal_rows)
+        _write_json(args.state_json, state)
+        logging.info("Threshold scheduler decision: %s", decision["action"])
+        return decision
+
     restarted = _restart_sidecars(args)
     decision["restarted_sidecars"] = restarted
     decision["action"] = "applied_and_restarted" if restarted else "applied"
@@ -552,6 +566,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--min-trades", type=int, default=128)
     parser.add_argument("--min-side-trades", type=int, default=8)
+    parser.add_argument(
+        "--min-reward-mean",
+        type=float,
+        default=0.0,
+        help="Strict lower bound on fee-adjusted reward_mean required for viable=True.",
+    )
     parser.add_argument("--win-rate-weight", type=float, default=0.1)
     parser.add_argument("--balance-weight", type=float, default=0.1)
     parser.add_argument("--health-weight", type=float, default=0.05)

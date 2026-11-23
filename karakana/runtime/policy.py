@@ -12,10 +12,22 @@ from typing import Any
 import torch
 
 ACTION_LABELS = ("go_long", "go_short", "do_nothing")
+ACTION_LABELS_V2 = ("go_long", "go_short")
+SUPPORTED_ACTION_LABELS = (ACTION_LABELS, ACTION_LABELS_V2)
+SCALE_INVARIANT_V1 = "scale_invariant_v1"
 DEFAULT_LONG_ACTION_MARGIN = 1.3
 DEFAULT_SHORT_ACTION_MARGIN = 0.07
 DEFAULT_MIN_ACTION_MARGIN = DEFAULT_SHORT_ACTION_MARGIN
 DEFAULT_STRATEGY_HEALTH_PATH = Path("user_data/reports/directional_strategy_health.csv")
+
+
+def _transform_scale_invariant_v1(ask: float, bid: float, sma_compare: float, is_short: float) -> list[float]:
+    mid_price = (ask + bid) / 2.0
+    spread = bid - ask
+    log_mid = math.copysign(math.log1p(abs(mid_price)), mid_price) if mid_price != 0.0 else 0.0
+    rel_spread = max(-2.0, min(2.0, spread / max(abs(mid_price), 1e-8)))
+    sma_clipped = max(-10.0, min(10.0, float(sma_compare)))
+    return [float(log_mid), float(rel_spread), float(sma_clipped), float(is_short)]
 
 
 def _torch_load_state_dict(path: Path) -> dict[str, torch.Tensor]:
@@ -84,8 +96,12 @@ class KarakanaOfflinePolicy:
         self.preprocessing = json.loads(preprocessing_path.read_text(encoding="utf-8"))
         self.manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
         self.action_labels = tuple(self.preprocessing.get("action_labels", ACTION_LABELS))
-        if self.action_labels != ACTION_LABELS:
-            raise ValueError(f"Unsupported action labels {self.action_labels}; expected {ACTION_LABELS}")
+        if self.action_labels not in SUPPORTED_ACTION_LABELS:
+            raise ValueError(
+                f"Unsupported action labels {self.action_labels}; expected one of {SUPPORTED_ACTION_LABELS}"
+            )
+        self.feature_transform = self.preprocessing.get("feature_transform")
+        self.observation_layout = tuple(self.preprocessing.get("observation_layout", ()))
 
         means = self.preprocessing.get("means")
         scales = self.preprocessing.get("scales")
@@ -99,7 +115,7 @@ class KarakanaOfflinePolicy:
         if torch.any(self.scales <= 0):
             raise ValueError("Karakana preprocessing scales must be positive")
 
-        self.policy = OfflineTradingQPolicy()
+        self.policy = OfflineTradingQPolicy(action_count=len(self.action_labels))
         self.policy.load_state_dict(_torch_load_state_dict(checkpoint_path))
         self.policy.eval()
 
@@ -150,26 +166,32 @@ class KarakanaOfflinePolicy:
             "source_path": str(self.strategy_health_path),
         }
 
-    @staticmethod
-    def _validate_state(ask: float, bid: float, sma_compare: int, is_short: int) -> list[float]:
+    def _validate_state(self, ask: float, bid: float, sma_compare: float | int, is_short: int) -> list[float]:
         state = [float(ask), float(bid), float(sma_compare), float(is_short)]
         if len(state) != 4 or not all(math.isfinite(value) for value in state):
             raise ValueError("Karakana inference requires four finite state values")
-        state[2] = float(int(state[2]))
-        state[3] = float(int(state[3]))
         if int(state[3]) not in (0, 1):
             raise ValueError("is_short must be 0 or 1")
+        if self.feature_transform == SCALE_INVARIANT_V1:
+            short_feat = 0.0 if len(self.action_labels) == 2 else float(int(state[3]))
+            return _transform_scale_invariant_v1(state[0], state[1], state[2], short_feat)
+        state[2] = float(int(state[2]))
+        state[3] = float(int(state[3]))
         return state
 
     def _directional_margin(self, q_values: torch.Tensor, is_short: int) -> dict[str, float | str]:
         directional_action = "go_short" if int(is_short) else "go_long"
         directional_q = float(q_values[self.action_labels.index(directional_action)].item())
-        do_nothing_q = float(q_values[self.action_labels.index("do_nothing")].item())
+        if "do_nothing" in self.action_labels:
+            baseline_q = float(q_values[self.action_labels.index("do_nothing")].item())
+        else:
+            opposite_action = "go_long" if int(is_short) else "go_short"
+            baseline_q = float(q_values[self.action_labels.index(opposite_action)].item())
         return {
             "directional_action": directional_action,
             "directional_q": directional_q,
-            "do_nothing_q": do_nothing_q,
-            "action_margin": directional_q - do_nothing_q,
+            "do_nothing_q": baseline_q,
+            "action_margin": directional_q - baseline_q,
         }
 
     def _threshold_for_side(self, is_short: int) -> float:

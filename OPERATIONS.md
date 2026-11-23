@@ -2,7 +2,7 @@
 
 This document covers the published Docker image `moinonin/freqtrade-karakana` and how to operate the Freqtrade + Karakana stack.
 
-**Image:** `moinonin/freqtrade-karakana:1.0.6` (multi-arch: `linux/amd64`, `linux/arm64`)
+**Image:** `moinonin/freqtrade-karakana:1.0.7` (multi-arch: `linux/amd64`, `linux/arm64`)
 **Base:** `freqtradeorg/freqtrade:2026.3` + Karakana runtime + sidecar CLIs
 
 ---
@@ -158,6 +158,7 @@ make inspect TAG=1.0.6
 | 1.0.4 | `sha256:f09bca15...` | Fixed shadow cursor stalling on delisted pairs |
 | 1.0.5 | `sha256:ea312059...` | Precomputed pair exit indices (sweep O(n²)→O(n)) |
 | 1.0.6 | `sha256:7ee004f6...` | Auto-apply: compose up -d recreation, fixed compose mount |
+| 1.0.7 | (pending push) | 2-action `scale_invariant_v1` policy support, 5 bps positive-EV sweep gate (`--min-reward-mean`), skip unchanged sidecar restarts |
 
 ---
 
